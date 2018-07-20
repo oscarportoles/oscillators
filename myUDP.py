@@ -15,10 +15,10 @@ from scipy.stats import pearsonr
 
 class Testkao():
     def __init__(self):
-        self.tMax     = np.float32(3.0)
+        self.tMax     = np.float32(3.5)
         self.tMin     = np.float32(1.0)
         self.fs       = np.float32(250.0)
-        self.omega    = np.float32(40.0)
+        self.omega    = np.float32(2*np.pi * 40.0)
         self.dlt      = np.float32(1.0)
         self.pathData = '/home/oscar/Documents/MATLAB/Kuramoto/Cabral/'
         self.nameDTI  = 'AAL_matrices.mat'         # anatomical network
@@ -95,9 +95,8 @@ class Testkao():
         return np.array([fit])
     
     def doIndexDelay(self,r,dlayStep):
-        commuOff = np.arange(0,r.shape[0]) * r.shape[1]
-        commuOff = np.tile(commuOff,(r.shape[0],1)).T
-        outpu = dlayStep + commuOff
+        nodes   = np.tile(np.arange(self.C),(self.C,1)) * r.shape[1]
+        outpu   = nodes - dlayStep
         return outpu
     
     def getAnatoCoupling(self,kG,kL):
@@ -138,22 +137,20 @@ class Testkao():
     @jit(nopython=True,cache=True,nogil=True,parallel=True,fastmath=False)
     def _KMAOcommu(phi,r,maxDlay,dlayStep,eta,dlt,fs,dt,kS,omga):
         C       = phi.shape[0]
-        #nodes   = range(0,C)
-        #commuOff = np.arange(0,C) * phi.shape[1]
         pi2     = np.float32(2 * np.pi)
         eta2    = np.float32(0.5 * eta)
-        sumRsp  = np.zeros((C), dtype=np.float32)
-        sumPHIsp= np.zeros((C), dtype=np.float32)
-        for n in range(maxDlay, phi.shape[1]-1):
+        sumRsp  = np.empty((C),dtype=np.float32)
+        sumPHIsp= np.empty((C),dtype=np.float32)
+        for n in range(maxDlay,phi.shape[1]-1):
             rsum1       = -dlt * r[:,n]
-            rpro1       = eta2 * ( 1 - r[:,n] * r[:,n] )
-            phipro1     = eta2 * (r[:,n] + 1/ r[:,n] )
-            idD = n - dlayStep
+            rpro1       = eta2 * ( 1 - r[:,n] * r[:,n])# r*r
+            phipro1     = eta2 * (r[:,n] * r[:,n] + 1) / r[:,n]
+            idD = n + dlayStep
             #for s in nodes:
             for s in prange(C):
                 #idD         = n - dlayStep[:,s] + commuOff
-                phiDif      = phi.ravel()[idD[:,s]] - phi[s,n]
-                kSr         = kS[:,s] * r.ravel()[idD[:,s]]
+                phiDif      = phi.ravel()[idD[s,:]] - phi[s,n]
+                kSr         = kS[:,s] * r.ravel()[idD[s,:]]
                 sumRsp[s]   = np.sum( kSr * np.cos( phiDif ))
                 sumPHIsp[s] = np.sum( kSr * np.sin( phiDif ))
             rdt         = rsum1 + rpro1 * sumRsp
@@ -164,20 +161,29 @@ class Testkao():
         r       = r[:,maxDlay+1:]     # remove history samples used in the begining
         phi     = phi[:,maxDlay+1:]
         # simple downsampling (there may be aliasing)
-        r   = r[:,::np.int64(1./(fs*dt))] 
-        phi = phi[:,::np.int64(1./(fs*dt))]
+        r   = r[:,::np.int32(1./(fs*dt))] 
+        phi = phi[:,::np.int32(1./(fs*dt))]
         return r * np.exp(1j* phi)
     
     def _doNodeContainers(self,maxDlay):      
         # node's variables
-        #import pdb; pdb.set_trace()
         r           = np.empty((self.C, int(self.tMax/self.dt + maxDlay)), dtype=np.float32) # node phase parameter [C, Nsamples to integrate]
         phi         = np.empty((self.C, int(self.tMax/self.dt + maxDlay)), dtype=np.float32) # node phase parameter [C, Nsamples to integrate]
         # initial conditions as history for the time delays
         omegaT      = self.omega * np.linspace(0, maxDlay*self.dt+self.dt,maxDlay+1, dtype=np.float32)
         r[:,0:maxDlay+1]    = 0.3 * np.ones((self.C,maxDlay+1))
         phi[:,0:maxDlay+1]  = np.tile(np.remainder(omegaT,2*np.pi),(self.C,1))
-        return r, phi    
+        return r, phi
+    
+    def setVariablesModel(self,x):
+        "set the basic variable need to run the KM model"
+        vel     = x[0]
+        kL      = x[1]
+        kG      = x[2]
+        self.kS      = self.getAnatoCoupling(kG,kL)
+        self.dlayStep, self.maxDlay = self.getDelays(vel)
+        self.r, self.phi   = self._doNodeContainers(self.maxDlay)
+        self.dlayId  = self.doIndexDelay(self.phi,self.dlayStep)
     
     
 class kMcabral():
