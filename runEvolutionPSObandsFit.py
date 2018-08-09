@@ -11,23 +11,22 @@ import numpy as np
 import myUDP
 import time
 
+band = 3
 
 generations = 500
 sizePop     = 25
 pathsave    = '/Users/p277634/python/kaoModel/optimResult/'
 #pathsave    = ''
-filenameTXT = 'pso_dlt0p25.txt'
-filenameNPZ = 'pso_dlt0p25.npz'
-
+filenameTXT = 'pso_Bandfit_' + str(band) + '.txt'
+filenameNPZ = 'pso_Bandfit_' + str(band) + '.npz'
 
 # algorithm
 algo   = po.algorithm(po.pso(gen=generations))
 algo.set_verbosity(1)
-
 # problem
-prob   = po.problem(myUDP.Testkao())
+prob   = po.problem(myUDP.KMAOsimpleFitBand(band=band))
 # population
-pop    = po.population(prob=prob,size=sizePop)
+pop    = po.population(prob=prob,size=sizePop,seed=22)
 
 # evolution
 start  = time.time()
@@ -59,15 +58,15 @@ bestFit = np.array([loguda[i][2] for i in range(len(loguda))])
 meanVel = np.array([loguda[i][3] for i in range(len(loguda))])
 meanLfit= np.array([loguda[i][4] for i in range(len(loguda))])
 # get parameter for the logging variable in problem class
-probE   = popE.problem.extract(type(myUDP.Testkao()))
+probE   = popE.problem.extract(type(myUDP.KMAOsimpleFitBand(band)))
 logged  = probE.get_mylogs()
 fitness = logged[:,0]
 velocity= logged[:,1]
 kL      = logged[:,2]
 kG      = logged[:,3]
 KordG   = logged[:,4]
-KordGsd = logged[:,5]
-KordL   = logged[:,6]
+KordGsd   = logged[:,5]
+KordL = logged[:,6]
 KordLsd = logged[:,7]
 #save file
 outfile  = pathsave + filenameNPZ

@@ -8,24 +8,22 @@ Created on Wed Jun  6 02:56:04 2018
 
 import pygmo as po
 import numpy as np
-import myUDP
+import myUDPnodes
 import time
 
 
 generations = 500
 sizePop     = 25
+#pathsave    = '/home/oscar/Documents/PythonProjects/kuramotoAO/optimizationResults/'
 pathsave    = '/Users/p277634/python/kaoModel/optimResult/'
-#pathsave    = ''
-filenameTXT = 'pso_dlt0p25.txt'
-filenameNPZ = 'pso_dlt0p25.npz'
-
+filenameTXT = 'pso_nodes_dlt0p25.txt'
+filenameNPZ = 'pso_nodes_dlt0p25.npz'
 
 # algorithm
 algo   = po.algorithm(po.pso(gen=generations))
 algo.set_verbosity(1)
-
 # problem
-prob   = po.problem(myUDP.Testkao())
+prob   = po.problem(myUDPnodes.KAOnodes())
 # population
 pop    = po.population(prob=prob,size=sizePop)
 
@@ -33,7 +31,6 @@ pop    = po.population(prob=prob,size=sizePop)
 start  = time.time()
 popE   = algo.evolve(pop)
 print('time evolution: ',time.time()-start)
-
 
 # save TXT fie with general description of the optimization
 bestFstr    = 'champion fitness: ' + str(popE.champion_f[0]) + '; best fit possible: -1'
@@ -59,17 +56,18 @@ bestFit = np.array([loguda[i][2] for i in range(len(loguda))])
 meanVel = np.array([loguda[i][3] for i in range(len(loguda))])
 meanLfit= np.array([loguda[i][4] for i in range(len(loguda))])
 # get parameter for the logging variable in problem class
-probE   = popE.problem.extract(type(myUDP.Testkao()))
+probE   = popE.problem.extract(type(myUDPnodes.KAOnodes()))
 logged  = probE.get_mylogs()
-fitness = logged[:,0]
-velocity= logged[:,1]
-kL      = logged[:,2]
-kG      = logged[:,3]
-KordG   = logged[:,4]
-KordGsd = logged[:,5]
-KordL   = logged[:,6]
-KordLsd = logged[:,7]
+fitness     = logged[:,0]
+velocity    = logged[:,1]
+KordL       = logged[:,2]
+KordG       = logged[:,3]
+KordLsd     = logged[:,4]
+KordGsd     = logged[:,5]
+kG          = logged[:,6]
+kL          = logged[:,7:]
+
 #save file
 outfile  = pathsave + filenameNPZ
-np.savez(outfile, fitness=fitness, velocity=velocity, kL=kL, kG=kG, KordrL=KordL, KordrG=KordG,
-         KordrLsd=KordLsd, KordrGsd=KordGsd)
+np.savez(outfile, fitness=fitness, velocity=velocity, kL=kL, kG=kG,
+         KordrL=KordL, KordrG=KordG, KordrLstd=KordLsd, KordrGstd=KordGsd)

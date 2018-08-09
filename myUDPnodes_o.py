@@ -11,36 +11,35 @@ from numba import jit, prange
 import scipy.signal as sg
 from scipy.stats import pearsonr
 
-#from numba import float32, int32, complex128, prange
+#from numba import float64, int64, complex128, prange
 
 class KAOnodes():
     def __init__(self):
-        self.iniCond  = 1 # Initial conditions - 1: psudo-random, 2: phi uniform, r const(0.3), other: zeros
-        self.tMax     = np.float32(4.5)
-        self.tMin     = np.float32(1.0)
-        self.fs       = np.float32(250.0)
-        self.omega    = np.float64(2*np.pi * 40.0)
-        self.dlt      = np.float64(0.25)
+        self.tMax     = np.float64(3.5)
+        self.tMin     = np.float64(1.0)
+        self.fs       = np.float64(500.0)
+        self.omega    = np.float64(40.0)
+        self.dlt      = np.float64(1.0)
         self.pathData = '/Users/p277634/python/kaoModel/'
         self.nameDTI  = 'AAL_matrices.mat'         # anatomical network
         self.nameFC   = 'Real_Band_FC.mat'     # Empirical Functional connectivity
-        self.dt       = np.float64(5e-4)
+        self.dt       = np.float64(2e-4)
         self._getEmpiricalData()
         self._desingFilterBands()
-        self.log      = np.empty((0,7 + self.C))
+        self.log      = np.empty((0,5 + self.C))
         
     def get_mylogs(self):
         return self.log
     
     def get_name(self):
-        return "kao with all nodes"
+        return "kaoDynamicsFixKl"
     
     def get_bounds(self):
         """Boundaries on: velocity, kG, kL"""
-        upbound     = [3500] * self.C
-        upbound     = [50, 7000] + upbound
-        lowbound    = [0.1] * self.C
-        lowbound    = [0.1, 0.1] + lowbound
+        upbound     = [1000] * self.C
+        upbound     = [25, 5000] + upbound
+        lowbound    = [1] * self.C
+        lowbound    = [0.1, 1] + lowbound
         return (lowbound, upbound)
           
     def _getEmpiricalData(self): 
@@ -50,13 +49,12 @@ class KAOnodes():
         self.D      = dti['D']                  # Distances beween nodes
         anato       = dti['C']                  # Strucural/anatomical network
         self.C      = np.shape(self.D)[1]       # number of nodes/brain areas
-        self.eta    = np.float32(1.0 / self.C)             # proportion of oscillator per community
-        #self.anato  = anato / np.mean(anato[~np.identity(self.C,dtype=bool)])   # normalize structural network to a mean = 1
-        self.anato  = anato / np.mean(anato)
+        self.eta    = np.float64(1.0 / self.C)             # proportion of oscillator per community
+        self.anato  = anato / np.mean(anato[~np.identity(self.C,dtype=bool)])   # normalize structural network to a mean = 1
         # load functional data
         loaddata    = self.pathData + self.nameFC
         empiri      = sio.loadmat(loaddata)              # fBands: frequency bands, FCf:functional connectivity
-        self.fBands = empiri['freq_bands'].astype(np.float32) # bandpass filter frequency bands
+        self.fBands = empiri['freq_bands'].astype(float) # bandpass filter frequency bands
         self.empiFC      = empiri['FC_Env_mean']              # empiprical functional connectivity
         self.empiProfile = []
         for ix in range(0,self.fBands.shape[0]):         # Profile Empirical data
@@ -80,14 +78,10 @@ class KAOnodes():
     
     def _doKuramotoOrder(self, z):
         # global order
-        ordG        = np.abs( np.mean( z[:,int(self.tMin*self.fs):], axis = 0 ))
-        orderG      = np.mean(ordG)
-        orderGstd   = np.std(ordG)
+        orderG  = np.mean(np.abs( np.mean( z[:,int(self.tMin*self.fs):], axis = 0 )))
         # local order
-        ordL        = np.mean( np.abs(z[:,int(self.tMin*self.fs):]), axis = 0 )
-        orderL      = np.mean(ordL)
-        orderLstd   = np.std(ordL)
-        return orderG, orderGstd, orderL, orderLstd      
+        orderL  = np.mean(np.mean( np.abs( z[:,int(self.tMin*self.fs):]), axis = 0 ))
+        return orderG, orderL     
     
     def fitness(self,x):
         vel     = x[0]
@@ -97,36 +91,31 @@ class KAOnodes():
         dlayStep, maxDlay = self.getDelays(vel)
         r, phi  = self._doNodeContainers(maxDlay)
         dlayIdx = self.doIndexDelay(r,dlayStep)
-        
-        # scales by dt,  try to reduce floating point error, and speed-up
-        kS_ = np.float32(kS*self.dt)
-        omga_ = np.float32(self.omega*self.dt)
-        dlt_ = np.float32( - self.dlt * self.dt)
-        
-        z    = KAOnodes._KMAOcommu(phi,r,maxDlay,dlayIdx,self.eta,dlt_,self.fs,self.dt,kS_,omga_)    
-        #self.z = z
-        fit         = self._fitFilterBands(z)
-        orderG, orderGstd, orderL, orderLstd = self._doKuramotoOrder(z)
+        z    = KAOnodes._KMAOcommu(phi,r,maxDlay,dlayIdx,self.eta,self.dlt,self.fs,self.dt,kS,self.omega)
+        self.z = z
+        fit, self.simuProfile = self._fitFilterBands(z)
+        orderG, orderL = self._doKuramotoOrder(z)
         self.log    = np.vstack((self.log,
-                                 np.append( [fit,vel,orderL,orderG,orderLstd,orderGstd,kG] , kL)))
+                                 np.append( [fit,self.velocity,orderL,orderG,kG] , kL)))
         return np.array([fit])
     
     def doIndexDelay(self,r,dlayStep):
-        nodes   = np.tile(np.arange(self.C),(self.C,1)) * r.shape[1]
-        outpu   = nodes - dlayStep
+        commuOff = np.arange(0,r.shape[0]) * r.shape[1]
+        commuOff = np.tile(commuOff,(r.shape[0],1)).T
+        outpu = dlayStep + commuOff
         return outpu
     
     def getAnatoCoupling(self,kG,kL):
         """Get anatomical network with couplings"""
         kS = self.anato * kG / self.C        # Globa  coupling
         np.fill_diagonal(kS,kL)              # Local coupling
-        return np.float64(kS)
+        return kS
     
     def getDelays(self,vel):
         """Return maximum delay and delay steps in samples"""
         dlay        = self.D / (1000.0 * vel)                     # [seconds] correct from mm to m
-        dlayStep    = np.around(dlay / self.dt).astype(np.int32)  # delay on steps backwards to be done
-        maxDlay     = np.int32(np.max(dlayStep))                  # number of time steps for the longest delay
+        dlayStep    = np.around(dlay / self.dt).astype(np.int64)  # delay on steps backwards to be done
+        maxDlay     = np.int64(np.max(dlayStep))                  # number of time steps for the longest delay
         return dlayStep, maxDlay
     
     def _fitFilterBands(self,z):
@@ -144,56 +133,51 @@ class KAOnodes():
             simuProfile  = np.append(simuProfile, envCo[np.triu_indices(z.shape[0],1)])
         #print(simuProfile.shape)
         ccoef, pval = pearsonr(simuProfile, self.empiProfile)
-        return -1 * ccoef
+        return -1 * ccoef, simuProfile
     
-    #complex128[:,:](float32[:,:],float32[:,:],int32,int32[:,:],float32,float32,float32,float32,float32[:,:],float32), 
-    @jit(nopython=True,cache=True,nogil=True,parallel=True,fastmath=True)
+    #complex128[:,:](float64[:,:],float64[:,:],int64,int64[:,:],float64,float64,float64,float64,float64[:,:],float64), 
+    @jit(nopython=True,cache=True,nogil=True,parallel=True,fastmath=False)
     def _KMAOcommu(phi,r,maxDlay,dlayStep,eta,dlt,fs,dt,kS,omga):
         C       = phi.shape[0]
-        pi2     = np.float32(2 * np.pi)
-        eta2    = np.float32(0.5 * eta)
-        sumRsp  = np.zeros((C),dtype=np.float32)
-        sumPHIsp= np.zeros((C),dtype=np.float32)
+        #nodes   = range(0,C)
+        #commuOff = np.arange(0,C) * phi.shape[1]
+        pi2     = 2 * np.pi
+        eta2    = 0.5 * eta
+        sumRsp  = np.empty((C))
+        sumPHIsp= np.empty((C))
         for n in range(maxDlay,phi.shape[1]-1):
-            rsum1       = dlt * r[:,n]
-            rpro1       = eta2 * ( 1 - r[:,n] * r[:,n])
-            phipro1     = eta2 * (r[:,n] + 1 / r[:,n])
-            idD         = n + dlayStep
-            phi_r = phi.ravel()
-            r_r   = r.ravel()
+            rsum1       = -dlt * r[:,n]
+            rpro1       = eta2 * ( 1 - r[:,n]**2 )
+            phipro1     = eta2 * (r[:,n]**2 + 1) / r[:,n]
+            idD = n - dlayStep
+            #for s in nodes:
             for s in prange(C):
-                phiDif      = phi_r[idD[s,:]] - phi[s,n]
-                kSr         = kS[:,s] * r_r[idD[s,:]]
+                #idD         = n - dlayStep[:,s] + commuOff
+                phiDif      = phi.ravel()[idD[:,s]] - phi[s,n]
+                kSr         = kS[:,s] * r.ravel()[idD[:,s]]
                 sumRsp[s]   = np.sum( kSr * np.cos( phiDif ))
                 sumPHIsp[s] = np.sum( kSr * np.sin( phiDif ))
             rdt         = rsum1 + rpro1 * sumRsp
             phidt       = omga + phipro1 * sumPHIsp
             # add differntial step
-            r[:,n+1]    = r[:,n] + rdt
-            phi[:,n+1]  = np.remainder(phi[:,n] + phidt, pi2)
+            r[:,n+1]    = r[:,n] + dt*rdt
+            phi[:,n+1]  = np.remainder(phi[:,n] + dt*phidt, pi2)
         r       = r[:,maxDlay+1:]     # remove history samples used in the begining
         phi     = phi[:,maxDlay+1:]
         # simple downsampling (there may be aliasing)
-        r   = r[:,::np.int32(1./(fs*dt))] 
-        phi = phi[:,::np.int32(1./(fs*dt))]
+        r   = r[:,::np.int64(1./(fs*dt))] 
+        phi = phi[:,::np.int64(1./(fs*dt))]
         return r * np.exp(1j* phi)
     
     def _doNodeContainers(self,maxDlay):      
         # node's variables
-        r           = np.zeros((self.C, int(self.tMax/self.dt + maxDlay)), dtype=np.float32) # node phase parameter [C, Nsamples to integrate]
-        phi         = np.zeros((self.C, int(self.tMax/self.dt + maxDlay)), dtype=np.float32) # node phase parameter [C, Nsamples to integrate]
+        #import pdb; pdb.set_trace()
+        r           = np.empty((self.C, int(self.tMax/self.dt + maxDlay))) # node phase parameter [C, Nsamples to integrate]
+        phi         = np.empty((self.C, int(self.tMax/self.dt + maxDlay))) # node phase parameter [C, Nsamples to integrate]
         # initial conditions as history for the time delays
-        if self.iniCond == 1:   # random 
-            np.random.seed(37)
-            phiRa   = np.tile(np.random.uniform(-np.pi,np.pi,self.C), (maxDlay+1,1)).T
-            time    = np.tile(np.linspace(0, (maxDlay+1)*self.dt, maxDlay+1, dtype=np.float32),(self.C,1))
-            phi[:,0:maxDlay+1]  = np.float32(np.remainder(time * self.omega + phiRa, 2*np.pi))
-            np.random.seed(37)
-            r[:,0:maxDlay+1]    = np.float32(np.tile(np.random.random(self.C), (maxDlay+1,1))).T
-        elif self.iniCond == 2: # phase equaly distributed around the circle 
-            omegaT      = self.omega * np.linspace(0, maxDlay*self.dt+self.dt,maxDlay+1, dtype=np.float32)
-            r[:,0:maxDlay+1]    = 0.3 * np.ones((self.C,maxDlay+1),dtype=np.float32)
-            phi[:,0:maxDlay+1]  = np.tile(np.remainder(omegaT,2*np.pi),(self.C,1))
+        omegaT      = self.omega * np.linspace(0,maxDlay*self.dt+self.dt,maxDlay+1)
+        r[:,0:maxDlay+1]    = 0.3 * np.ones((self.C,maxDlay+1))
+        phi[:,0:maxDlay+1]  = np.tile(np.remainder(omegaT,2*np.pi),(self.C,1))
         return r, phi
     
     
@@ -203,20 +187,19 @@ class KAOnodes_noVel():
         coupling and local cupling
     """
     def __init__(self):
-        self.iniCond  = 1 # Initial conditions - 1: psudo-random, 2: phi uniform, r const(0.3), other: zeros
-        self.tMax     = np.float32(3.5)
-        self.tMin     = np.float32(1.0)
-        self.fs       = np.float32(250.0)
-        self.omega    = np.float64(2*np.pi * 40.0)
+        self.tMax     = np.float64(3.5)
+        self.tMin     = np.float64(1.0)
+        self.fs       = np.float64(500.0)
+        self.omega    = np.float64(40.0)
         self.dlt      = np.float64(1.0)
-        self.pathData = '/home/oscar/Documents/MATLAB/Kuramoto/Cabral/'
+        self.pathData = '/Users/p277634/python/kaoModel/'
         self.nameDTI  = 'AAL_matrices.mat'         # anatomical network
         self.nameFC   = 'Real_Band_FC.mat'     # Empirical Functional connectivity
-        self.dt       = np.float64(5e-4)
+        self.dt       = np.float64(2e-4)
         self._getEmpiricalData()
         self._desingFilterBands()
         self.log      = np.empty((0, 7 + self.C))
-        self.velocity = np.float32(1.25)      # Conduction velocity [m/s]
+        self.velocity = np.float64(1.25)      # Conduction velocity [m/s]
         self._doDelays()
         self._doNodeContainers()
         self._doIndexDelay()
@@ -226,7 +209,7 @@ class KAOnodes_noVel():
         return self.log
     
     def get_name(self):
-        return "kaoDynamicsFixKl"
+        return "KAOnodes_noVel"
     
     def get_bounds(self):
         """Boundaries on: velocity, kG, kL"""
@@ -243,9 +226,8 @@ class KAOnodes_noVel():
         self.D      = dti['D']                  # Distances beween nodes
         anato       = dti['C']                  # Strucural/anatomical network
         self.C      = np.shape(self.D)[1]       # number of nodes/brain areas
-        self.eta    = np.float32(1.0 / self.C)             # proportion of oscillator per community
-        #self.anato  = anato / np.mean(anato[~np.identity(self.C,dtype=bool)])   # normalize structural network to a mean = 1
-        self.anato  = anato / np.mean(anato) 
+        self.eta    = np.float64(1.0 / self.C)             # proportion of oscillator per community
+        self.anato  = anato / np.mean(anato[~np.identity(self.C,dtype=bool)])   # normalize structural network to a mean = 1
         # load functional data
         loaddata    = self.pathData + self.nameFC
         empiri      = sio.loadmat(loaddata)              # fBands: frequency bands, FCf:functional connectivity
@@ -274,55 +256,39 @@ class KAOnodes_noVel():
     def _doDelays(self):
         """Return maximum delay and delay steps in samples"""
         dlay            = self.D / (1000.0 * self.velocity)            # [seconds] correct from mm to m
-        self.dlayStep   = np.around(dlay / self.dt).astype(np.int32)  # delay on steps backwards to be done
-        self.maxDlay    = np.int32(np.max(self.dlayStep))                  # number of time steps for the longest delay
+        self.dlayStep   = np.around(dlay / self.dt).astype(np.int64)  # delay on steps backwards to be done
+        self.maxDlay    = np.int64(np.max(self.dlayStep))                  # number of time steps for the longest delay
 
     def _doIndexDelay(self):
-        nodes           = np.tile(np.arange(self.C),(self.C,1)) * self.r.shape[1]
-        self.dlayIdx    = nodes - self.dlayStep
+        commuOff    = np.arange(0,self.r.shape[0]) * self.r.shape[1]
+        commuOff    = np.tile(commuOff,(self.r.shape[0],1)).T
+        self.dlayIdx= self.dlayStep + commuOff
     
-    def _doNodeContainers(self,maxDlay):      
+    def _doNodeContainers(self):      
         # node's variables
-        r           = np.zeros((self.C, int(self.tMax/self.dt + maxDlay)), dtype=np.float32) # node phase parameter [C, Nsamples to integrate]
-        phi         = np.zeros((self.C, int(self.tMax/self.dt + maxDlay)), dtype=np.float32) # node phase parameter [C, Nsamples to integrate]
+        self.r      = np.empty((self.C, int(self.tMax/self.dt + self.maxDlay))) # node phase parameter [C, Nsamples to integrate]
+        self.phi    = np.empty((self.C, int(self.tMax/self.dt + self.maxDlay))) # node phase parameter [C, Nsamples to integrate]
         # initial conditions as history for the time delays
-        if self.iniCond == 1:   # random 
-            np.random.seed(37)
-            phiRa   = np.tile(np.random.uniform(-np.pi,np.pi,self.C), (maxDlay+1,1)).T
-            time    = np.tile(np.linspace(0, (maxDlay+1)*self.dt, maxDlay+1, dtype=np.float32),(self.C,1))
-            phi[:,0:maxDlay+1]  = np.float32(np.remainder(time * self.omega + phiRa, 2*np.pi))
-            np.random.seed(37)
-            r[:,0:maxDlay+1]    = np.float32(np.tile(np.random.random(self.C), (maxDlay+1,1))).T
-        elif self.iniCond == 2: # phase equaly distributed around the circle 
-            omegaT      = self.omega * np.linspace(0, maxDlay*self.dt+self.dt,maxDlay+1, dtype=np.float32)
-            r[:,0:maxDlay+1]    = 0.3 * np.ones((self.C,maxDlay+1),dtype=np.float32)
-            phi[:,0:maxDlay+1]  = np.tile(np.remainder(omegaT,2*np.pi),(self.C,1))
-        return r, phi
+        omegaT      = self.omega * np.linspace(0,self.maxDlay*self.dt+self.dt,self.maxDlay+1)
+        self.r[:,0:self.maxDlay+1]    = 0.3 * np.ones((self.C,self.maxDlay+1))
+        self.phi[:,0:self.maxDlay+1]  = np.tile(np.remainder(omegaT,2*np.pi),(self.C,1))
     
     def _doKuramotoOrder(self, z):
         # global order
-        ordG        = np.abs( np.mean( z[:,int(self.tMin*self.fs):], axis = 0 ))
-        orderG      = np.mean(ordG)
-        orderGstd   = np.std(ordG)
+        orderG      = np.mean(np.abs( np.mean( z[:,int(self.tMin*self.fs):], axis = 0 )))
+        orderGstd   = np.std(np.abs( np.mean( z[:,int(self.tMin*self.fs):], axis = 0 )))
         # local order
-        ordL        = np.mean( np.abs(z[:,int(self.tMin*self.fs):]), axis = 0 )
-        orderL      = np.mean(ordL)
-        orderLstd   = np.std(ordL)        
+        orderL      = np.mean(np.mean( np.abs(z[:,int(self.tMin*self.fs):]), axis = 0 ))
+        orderLstd   = np.std(np.mean( np.abs(z[:,int(self.tMin*self.fs):]), axis = 0 ))
         return orderG, orderGstd, orderL, orderLstd    
     
     def fitness(self,x):
         kG      = x[0]
         kL      = x[1:]     # Kl is an scalar if kL is fix for all nodes, or kL is an array if kL is free
         kS      = self.getAnatoCoupling(kG,kL)
-        
-       # scales by dt, try to reduce floating point error, and speed-up
-        kS_ = np.float32(kS*self.dt)
-        omga_ = np.float32(self.omega*self.dt)
-        dlt_ = np.float32(-self.dlt * self.dt)
-        
-        z    = KAOnodes_noVel._KMAOcommu(self.phi,self.r,self.maxDlay,self.dlayIdx,self.eta,dlt_,self.fs,self.dt,kS_,omga_)
-        #self.z = z
-        fit         = self._fitFilterBands(z)
+        z    = KAOnodes._KMAOcommu(self.phi,self.r,self.maxDlay,self.dlayIdx,self.eta,self.dlt,self.fs,self.dt,kS,self.omega)
+        self.z = z
+        fit, self.simuProfile = self._fitFilterBands(z)
         orderG, orderGsd, orderL, orderLsd = self._doKuramotoOrder(z)
         self.log    = np.vstack((self.log,
                                  np.append( [fit,self.velocity,orderL,orderG,orderLsd,orderGsd,kG] , kL)))
@@ -333,7 +299,7 @@ class KAOnodes_noVel():
         """Get anatomical network with couplings"""
         kS = self.anato * kG / self.C        # Globa  coupling
         np.fill_diagonal(kS,kL)              # Local coupling
-        return np.float64(kS)
+        return kS
     
     
     def _fitFilterBands(self,z):
@@ -349,38 +315,41 @@ class KAOnodes_noVel():
             # set to zero negative correlations
             envCo = np.clip(envCo, a_min=0, a_max=None)
             simuProfile  = np.append(simuProfile, envCo[np.triu_indices(z.shape[0],1)])
+        #print(simuProfile.shape)
         ccoef, pval = pearsonr(simuProfile, self.empiProfile)
-        return -1 * ccoef
+        return -1 * ccoef, simuProfile
     
-    #complex128[:,:](float32[:,:],float32[:,:],int32,int32[:,:],float32,float32,float32,float32,float32[:,:],float32), 
-    @jit(nopython=True,cache=True,nogil=True,parallel=True,fastmath=True)
+    #complex128[:,:](float64[:,:],float64[:,:],int64,int64[:,:],float64,float64,float64,float64,float64[:,:],float64), 
+    @jit(nopython=True,cache=True,nogil=True,parallel=True,fastmath=False)
     def _KMAOcommu(phi,r,maxDlay,dlayStep,eta,dlt,fs,dt,kS,omga):
         C       = phi.shape[0]
-        pi2     = np.float32(2 * np.pi)
-        eta2    = np.float32(0.5 * eta)
-        sumRsp  = np.empty((C),dtype=np.float32)
-        sumPHIsp= np.empty((C),dtype=np.float32)
+        #nodes   = range(0,C)
+        #commuOff = np.arange(0,C) * phi.shape[1]
+        pi2     = 2 * np.pi
+        eta2    = 0.5 * eta
+        sumRsp  = np.empty((C))
+        sumPHIsp= np.empty((C))
         for n in range(maxDlay,phi.shape[1]-1):
             rsum1       = -dlt * r[:,n]
-            rpro1       = eta2 * ( 1 - r[:,n] * r[:,n])
-            phipro1     = eta2 * (r[:,n] + 1 / r[:,n])
-            idD   = n - dlayStep
-            phi_r = phi.ravel()
-            r_r   = r.ravel()
+            rpro1       = eta2 * ( 1 - r[:,n]**2 )
+            phipro1     = eta2 * (r[:,n]**2 + 1) / r[:,n]
+            idD = n - dlayStep
+            #for s in nodes:
             for s in prange(C):
-                phiDif      = phi_r[idD[:,s]] - phi[s,n]
-                kSr         = kS[:,s] * r_r[idD[:,s]]
+                #idD         = n - dlayStep[:,s] + commuOff
+                phiDif      = phi.ravel()[idD[:,s]] - phi[s,n]
+                kSr         = kS[:,s] * r.ravel()[idD[:,s]]
                 sumRsp[s]   = np.sum( kSr * np.cos( phiDif ))
                 sumPHIsp[s] = np.sum( kSr * np.sin( phiDif ))
             rdt         = rsum1 + rpro1 * sumRsp
             phidt       = omga + phipro1 * sumPHIsp
             # add differntial step
-            r[:,n+1]    = r[:,n] + rdt
-            phi[:,n+1]  = np.remainder(phi[:,n] + phidt, pi2)
+            r[:,n+1]    = r[:,n] + dt*rdt
+            phi[:,n+1]  = np.remainder(phi[:,n] + dt*phidt, pi2)
         r       = r[:,maxDlay+1:]     # remove history samples used in the begining
         phi     = phi[:,maxDlay+1:]
         # simple downsampling (there may be aliasing)
-        r   = r[:,::np.int32(1./(fs*dt))] 
-        phi = phi[:,::np.int32(1./(fs*dt))]
+        r   = r[:,::np.int64(1./(fs*dt))] 
+        phi = phi[:,::np.int64(1./(fs*dt))]
         return r * np.exp(1j* phi)
     

@@ -12,12 +12,12 @@ import myUDP
 import time
 
 
-generations = 500
-sizePop     = 25
+generations = 400
+sizePop     = 15
 pathsave    = '/Users/p277634/python/kaoModel/optimResult/'
 #pathsave    = ''
-filenameTXT = 'pso_dlt0p25.txt'
-filenameNPZ = 'pso_dlt0p25.npz'
+filenameTXT = 'pso_cabral.txt'
+filenameNPZ = 'pso_cabral.npz'
 
 
 # algorithm
@@ -25,7 +25,7 @@ algo   = po.algorithm(po.pso(gen=generations))
 algo.set_verbosity(1)
 
 # problem
-prob   = po.problem(myUDP.Testkao())
+prob   = po.problem(myUDP.kMcabral())
 # population
 pop    = po.population(prob=prob,size=sizePop)
 
@@ -59,17 +59,15 @@ bestFit = np.array([loguda[i][2] for i in range(len(loguda))])
 meanVel = np.array([loguda[i][3] for i in range(len(loguda))])
 meanLfit= np.array([loguda[i][4] for i in range(len(loguda))])
 # get parameter for the logging variable in problem class
-probE   = popE.problem.extract(type(myUDP.Testkao()))
+probE   = popE.problem.extract(type(myUDP.kMcabral()))
 logged  = probE.get_mylogs()
-fitness = logged[:,0]
-velocity= logged[:,1]
-kL      = logged[:,2]
-kG      = logged[:,3]
-KordG   = logged[:,4]
-KordGsd = logged[:,5]
-KordL   = logged[:,6]
-KordLsd = logged[:,7]
+fitness     = logged[:,0]
+velocity    = logged[:,1]
+kG          = logged[:,2]
+KordG       = logged[:,3]
+KordGsd     = logged[:,5]
+
 #save file
 outfile  = pathsave + filenameNPZ
-np.savez(outfile, fitness=fitness, velocity=velocity, kL=kL, kG=kG, KordrL=KordL, KordrG=KordG,
-         KordrLsd=KordLsd, KordrGsd=KordGsd)
+np.savez(outfile, fitness=fitness, velocity=velocity, kG=kG,
+         KordrG=KordG, KordrGsd=KordGsd)
