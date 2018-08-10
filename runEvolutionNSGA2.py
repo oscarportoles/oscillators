@@ -57,8 +57,8 @@ probE       = popE.problem.extract(type(myUDP.kaoSimplMultiObj()))
 logged      = probE.get_mylogs()
 fitness     = np.array([run[0] for run in logged])
 velocity    = np.array([run[1] for run in logged])
-kG          = np.array([run[2] for run in logged])
-kL          = np.array([run[3] for run in logged])
+kL          = np.array([run[2] for run in logged])
+kG          = np.array([run[3] for run in logged])
 KordG       = np.array([run[4] for run in logged])
 KordGsd     = np.array([run[5] for run in logged])
 KordL       = np.array([run[6] for run in logged])
@@ -67,4 +67,4 @@ KordLsd     = np.array([run[7] for run in logged])
 #save file
 outfile  = pathsave + filenameNPZ
 np.savez(outfile, fitness=fitness, velocity=velocity, kL=kL, kG=kG,
-         KordrL=KordL, KordrG=KordG, KordrLstd=KordLsd, KordrGstd=KordGsd)
+         KordrL=KordL, KordrG=KordG, KordrLsd=KordLsd, KordrGsd=KordGsd)
