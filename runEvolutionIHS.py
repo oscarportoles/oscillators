@@ -12,20 +12,19 @@ import time
 
 
 generations = 400
-sizePop     = 36
-m           = 0.5   # mutation probability
+sizePop     = 35
 #pathsave    = '/home/oscar/Documents/PythonProjects/kuramotoAO/optimizationResults/'
 pathsave    = '/Users/p277634/python/kaoModel/optimResult/'
-filenameTXT = 'NSGA2.txt'
-filenameNPZ = 'NSGA2.npz'
+filenameTXT = 'ihs.txt'
+filenameNPZ = 'ihs.npz'
 
 print('Running: ', filenameNPZ[:-4])
 
 # algorithm
-algo   = po.algorithm(po.nsga2(gen=generations), m=m)
+algo   = po.algorithm(po.ihs(gen=generations, seed=22))
 algo.set_verbosity(1)
 # problem
-prob   = po.problem(myUDP.kaoSimplMultiObj())
+prob   = po.problem(myUDP.kaoSimplMultiObjContr())
 # population
 pop    = po.population(prob=prob,size=sizePop)
 # evolution
@@ -34,9 +33,9 @@ popE   = algo.evolve(pop)
 print('time evolution: ',time.time()-start)
 
 # save TXT fie with general description of the optimization
-bestFstr  = 'ideal found fit: ' + str(po.ideal(popE.get_f()))  + '; best fit possible: -1'
-#bestChamp  = 'champion decission vector'
-bestXstr  = 'velocity: ' + str(popE.champion_x[0]) + ', kL:' + str(popE.champion_x[1]),', kG: ' + str(popE.champion_x[2])
+bestFstr  = 'ideal found fit: ' + str(po.ideal(popE.get_f())) + '; best fit possible: -1'
+bestChamp  = 'champion decission vector'
+#bestXstr  = 'velocity: ' + str(popE.champion_x[0]) + ', kL:' + str(popE.champion_x[1]),', kG: ' + str(popE.champion_x[2])
 popStr   = popE.__str__()
 algoStr  = algo.__str__()
 localtime = time.localtime(time.time())
@@ -44,17 +43,17 @@ dateStr  = str(localtime)
 with open(pathsave+filenameTXT, "w") as text_file:
     print(dateStr, end='\n\n', file=text_file)
     print(bestFstr, end='\n', file=text_file)  
-    #print(bestChamp, end='\n', file=text_file)
-    print(bestXstr, end='\n\n', file=text_file)  
+    print(bestChamp, end='\n', file=text_file)
+    #print(bestXstr, end='\n\n', file=text_file)  
     print(algoStr, end='\n', file=text_file)
     print(popStr, end='\n', file=text_file)
 
 # Get logs from the algorithm
-#loguda = algo.extract(po.nsga2).get_log()
+#loguda = algo.extract(po.cmaes).get_log()
 # get best fitness, CR, and F per generation
 #sigma  = np.array([loguda[i][5] for i in range(len(loguda))])
 # get parameter for the logging variable in problem class
-probE       = popE.problem.extract(type(myUDP.kaoSimplMultiObj()))
+probE       = popE.problem.extract(type(myUDP.kaoSimplMultiObjContr()))
 logged      = probE.get_mylogs()
 fitness     = np.array([run[0] for run in logged])
 velocity    = np.array([run[1] for run in logged])
