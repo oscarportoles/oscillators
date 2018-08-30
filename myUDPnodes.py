@@ -409,7 +409,7 @@ class KAOnodesMultiObjConstr():
         return self.log
     
     def get_name(self):
-        return "kao with all nodes, multiobjective optimization"
+        return "kao with all nodes, multiobjective optimization with constrains"
     
     def get_nobj(self):
         return self.fBands.shape[0]
