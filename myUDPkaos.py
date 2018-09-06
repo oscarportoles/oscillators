@@ -253,6 +253,41 @@ class KAOsimple(KAOmother):
         else:
             raise ValueError('The library to optimize was not defined correctly')
 
+class KAOsimpleSimuConstr(KAOmother):
+    """ Local coupling is the same for all nodes """
+    def get_name(self):
+        return "KAOM with fix kL for all nodesl"
+    
+    def fitness(self,x):
+        vel     = x[0]
+        kG      = x[1]
+        kL      = x[2]
+        kS      = self.getAnatoCoupling(kG,kL)
+        dlayStep, maxDlay = self.getDelays(vel)
+        r, phi  = self._doNodeContainers(maxDlay)
+        dlayIdx = self.doIndexDelay(r,dlayStep)
+        
+        # scales by dt, try to reduce floating point error, and speed-up
+        kS_ = np.float32(kS*self.dt)
+        omga_ = np.float32(self.omega*self.dt)
+        dlt_ = np.float32(-self.dlt * self.dt)
+        
+        z    = KAOmother._KMAOcommu(phi,r,maxDlay,dlayIdx,self.eta,dlt_,self.fs,self.dt,kS_,omga_)
+
+        #self.z = z
+        profileFC   = self._fitFilterBands(z)
+        fit, ccoef  = self.doDiffConnecti_SO(profileFC)
+        orderG, orderGstd, orderL, orderLstd, order = self._doKuramotoOrder(z)
+        if 0.1 > order > 0.6: # penalization if out of constrains
+            fit = 0.5 * self.fBands.shape[0] * self.C ** 2
+            ccoef = 0.0
+        self.log.append( [fit,ccoef,vel,kL,kG,orderG,orderGstd,orderL,orderLstd,order] )
+        if self.lib == 1:
+            return  np.array([fit])
+        elif self.lib == 2:
+            return fit
+        else:
+            raise ValueError('The library to optimize was not defined correctly')
     
 class kaoSimplMultiObj(KAOmother):
     """ Multiobjective optimization. Each frequency band is on objective function.
@@ -365,6 +400,47 @@ class KAOnodes(KAOmother):
         profileFC   = self._fitFilterBands(z)
         fit, ccoef  = self.doDiffConnecti_SO(profileFC)
         orderG, orderGstd, orderL, orderLstd, order = self._doKuramotoOrder(z)
+        self.log.append( [fit,ccoef,vel,kL,kG,orderG,orderGstd,orderL,orderLstd, order] )
+        if self.lib == 1:
+            return  np.array([fit])
+        elif self.lib == 2:
+            return fit
+        else:
+            raise ValueError('The library to optimize was not defined correctly')
+
+class KAOnodesSimuConstr(KAOmother):
+    def get_name(self):
+        return "kao with all nodes"
+    
+    def get_bounds(self):
+        """Boundaries on: velocity, kG, kL"""
+        upbound     = self.upBound[0:2] + [self.upBound[2]] * self.C
+        lowbound    = self.lowBound[0:2] + [self.lowBound[2]] * self.C
+        return (lowbound, upbound)
+    
+    def fitness(self,x):
+        vel     = x[0]
+        kG      = x[1]
+        kL      = x[2]
+        kS      = self.getAnatoCoupling(kG,kL)
+        dlayStep, maxDlay = self.getDelays(vel)
+        r, phi  = self._doNodeContainers(maxDlay)
+        dlayIdx = self.doIndexDelay(r,dlayStep)
+        
+        # scales by dt, try to reduce floating point error, and speed-up
+        kS_ = np.float32(kS*self.dt)
+        omga_ = np.float32(self.omega*self.dt)
+        dlt_ = np.float32(-self.dlt * self.dt)
+        
+        z    = KAOmother._KMAOcommu(phi,r,maxDlay,dlayIdx,self.eta,dlt_,self.fs,self.dt,kS_,omga_)
+
+        #self.z = z
+        profileFC   = self._fitFilterBands(z)
+        fit, ccoef  = self.doDiffConnecti_SO(profileFC)
+        orderG, orderGstd, orderL, orderLstd, order = self._doKuramotoOrder(z)
+        if 0.1 > order > 0.6: # penalization if out of constrains
+            fit = 0.5 * self.fBands.shape[0] * self.C ** 2
+            ccoef = 0.0
         self.log.append( [fit,ccoef,vel,kL,kG,orderG,orderGstd,orderL,orderLstd, order] )
         if self.lib == 1:
             return  np.array([fit])
