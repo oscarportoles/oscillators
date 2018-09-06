@@ -1,0 +1,6 @@
+__pycache__/
+optimResult/
+oscillators/
+runEvolutionCMAES_files/
+AAL_matrices.mat
+Real_Band_FC.mat

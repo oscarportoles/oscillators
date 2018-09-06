@@ -7,16 +7,18 @@ Created on Tue Jul  3 16:55:24 2018
 """
 import pygmo as po
 import numpy as np
-import myUDP
+import myUDPkaos
 import time
 
 
 generations = 500
 sizePop     = 25
+library     = 1
+
 #pathsave    = '/home/oscar/Documents/PythonProjects/kuramotoAO/optimizationResults/'
 pathsave    = '/Users/p277634/python/kaoModel/optimResult/'
-filenameTXT = 'DE1220_j_delta5.txt'
-filenameNPZ = 'DE1220_j_delta5.npz'
+filenameTXT = 'DE1220_j_constrains.txt'
+filenameNPZ = 'DE1220_j_constrains.npz'
 
 
 # algorithm
@@ -29,7 +31,7 @@ algo   = po.algorithm(po.de1220(gen=generations,
 algo.set_verbosity(1)
 
 # problem
-prob   = po.problem(myUDP.Testkao())
+prob   = po.problem(myUDPkaos.KAOsimpleSimuConstr(lib=library))
 # population
 pop    = po.population(prob=prob,size=sizePop)
 
@@ -63,19 +65,29 @@ bestF   = np.array([loguda[i][3] for i in range(len(loguda))])
 bestCR  = np.array([loguda[i][4] for i in range(len(loguda))])
 mutVar  = np.array([loguda[i][5] for i in range(len(loguda))])
 # get parameter for the logging variable in problem class
-probE       = popE.problem.extract(type(myUDP.Testkao()))
+probE       = popE.problem.extract(type(myUDPkaos.KAOsimpleSimuConstr()))
 logged      = probE.get_mylogs()
-fitness     = logged[:,0]
-velocity    = logged[:,1]
-kL          = logged[:,2]
-kG          = logged[:,3]
-KordG       = logged[:,4]
-KordGsd     = logged[:,5]
-KordL       = logged[:,6]
-KordLsd     = logged[:,7]
-
+fitness     = np.array([log[0] for log in logged]).astype(np.float32)
+ccoef       = np.array([log[1] for log in logged]).astype(np.float32)
+velocity    = np.array([log[2] for log in logged]).astype(np.float32)
+kL          = np.array([log[3] for log in logged]).astype(np.float32)
+kG          = np.array([log[4] for log in logged]).astype(np.float32)
+orderG      = np.array([log[5] for log in logged]).astype(np.float32)
+orderGsd    = np.array([log[6] for log in logged]).astype(np.float32)
+orderL      = np.array([log[7] for log in logged]).astype(np.float32)
+orderLsd    = np.array([log[8] for log in logged]).astype(np.float32)
+order1      = np.array([log[9] for log in logged]).astype(np.float32)
+# get parameters of the model
+parametKAO = {"lowBound":probE.lowBound, "upBound":probE.upBound ,"tMax":probE.tMax,
+              "tMin":probE.tMin, "fs":probE.fs, "omega":probE.omega, "dlt":probE.dlt,
+              "nameDTI":probE.nameDTI ,"nameFC":probE.nameFC ,"dt":probE.dt ,
+              "iniCond":probE.iniCond ,"C":probE.C ,"fBands":probE.fBands ,
+              "D":probE.D ,"anato":probE.anato ,"empiFC":probE.empiFC ,"lib":probE.lib}
 #save file
 outfile  = pathsave + filenameNPZ
-np.savez(outfile, fitness=fitness, velocity=velocity, kL=kL, kG=kG,
-         KordrL=KordL, KordrG=KordG, KordrLstd=KordLsd, KordrGstd=KordGsd)
+np.savez(outfile, fitness=fitness, velocity=velocity, kL=kL, kG=kG, Kordr1=order1,
+         KordrL=orderL, KordrG=orderG, KordrLsd=orderLsd, KordrGstd=orderGsd,
+         parametKAO=parametKAO)
+
+plotOrderKLKGvel(velocity, kL, kG, fitness, orderG, orderL, save=True, filenameNPZ[:-4])
 
